@@ -4,11 +4,29 @@
 # Copyright (C) 2024
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
+import time
+
 from .. import bus
 from . import font8x14
 from .uc1701 import SPI4wire, ResetHelper
 
 BACKGROUND_PRIORITY_CLOCK = 0x7fffffff00000000
+
+# Klipper SPI commands are encoded with a uint8_t length prefix, and the
+# whole message envelope is capped near MESSAGE_MAX=64 bytes, so each
+# spi_send() payload must be small. 32 leaves comfortable headroom.
+SPI_CHUNK = 32
+
+# Glyphs for code points beyond ASCII 0-127 that aren't in font8x14.VGA_FONT.
+# Each entry is 14 rows of 8 pixels (MSB-leftmost), matching the VGA font.
+EXTRA_GLYPHS = {
+    0xF8: bytes([  # degrees (Klipper writes this for temperature labels)
+        0b00000000, 0b00111000, 0b01000100, 0b01000100,
+        0b00111000, 0b00000000, 0b00000000, 0b00000000,
+        0b00000000, 0b00000000, 0b00000000, 0b00000000,
+        0b00000000, 0b00000000,
+    ]),
+}
 
 TextGlyphs = { 'right_arrow': b'\x1a', 'degrees': b'\xf8' }
 
@@ -51,9 +69,10 @@ class ST7789V:
         self.font = font8x14.VGA_FONT
 
     def _delay(self, seconds):
-        # Yield to the reactor instead of blocking with time.sleep().
-        reactor = self.printer.get_reactor()
-        reactor.pause(reactor.monotonic() + seconds)
+        # ST7789V requires ~120 ms after sleep-out and ~50 ms after display-on
+        # for the chip's internal state machine. Klipper's reactor.pause() is
+        # not allowed in display init context, so block briefly with sleep().
+        time.sleep(seconds)
 
     def init(self):
         self.reset.init()
@@ -105,13 +124,24 @@ class ST7789V:
         send([y >> 8, y & 0xFF, ye >> 8, ye & 0xFF], is_data=True)
         send([0x2C])
 
+    def _send_chunked(self, data):
+        # Split data into SPI_CHUNK-sized writes (uint8_t length cap, ~56B
+        # message envelope). Pre-slice once when reused across rows.
+        send = self.io.send
+        for i in range(0, len(data), SPI_CHUNK):
+            send(data[i:i + SPI_CHUNK], is_data=True)
+
     def _fill_rect(self, x, y, w, h, color):
         self._set_window(x, y, w, h)
         hi = (color >> 8) & 0xFF
         lo = color & 0xFF
-        row_data = bytearray([hi, lo] * w)
+        row_data = bytes([hi, lo] * w)
+        chunks = [row_data[i:i + SPI_CHUNK]
+                  for i in range(0, len(row_data), SPI_CHUNK)]
+        send = self.io.send
         for _ in range(h):
-            self.io.send(row_data, is_data=True)
+            for chunk in chunks:
+                send(chunk, is_data=True)
 
     def _draw_char(self, col, row, ch, fg=COLOR_WHITE, bg=COLOR_BLACK):
         x = col * self.char_w
@@ -119,9 +149,12 @@ class ST7789V:
         if x >= 320 or y >= 240:
             return
         c = ord(ch) if isinstance(ch, str) else ch
-        if c > 127:
-            c = ord('?')
-        glyph = self.font[c]
+        if c <= 127:
+            glyph = self.font[c]
+        else:
+            glyph = EXTRA_GLYPHS.get(c)
+            if glyph is None:
+                glyph = self.font[ord('?')]
         pixels = bytearray(self.char_w * self.char_h * 2)
         idx = 0
         fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
@@ -145,7 +178,7 @@ class ST7789V:
             pixels[idx:idx + 32] = scaled_row
             idx += 32
         self._set_window(x, y, self.char_w, self.char_h)
-        self.io.send(pixels, is_data=True)
+        self._send_chunked(pixels)
 
     def flush(self):
         for row in range(self.rows):
