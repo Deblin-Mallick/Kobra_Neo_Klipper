@@ -15,6 +15,7 @@ $(OUT)klipper.elf: $(OUT)src/generic/armcm_link.ld
 src-y += hc32f460/main.c
 src-y += hc32f460/interrupts.c
 src-y += hc32f460/gpio.c
+src-y += hc32f460/tmc_init.c
 src-y += ../lib/hc32f460/mcu/common/system_hc32f460.c
 src-y += ../lib/hc32f460/driver/src/hc32f460_clk.c
 src-y += ../lib/hc32f460/driver/src/hc32f460_efm.c
