@@ -61,14 +61,8 @@ class ST7789V:
         self.io = SPI4wire(config, "dc_pin")
         self.reset = ResetHelper(config.get("rst_pin", None), self.io.spi)
         # Optional backlight; many ST7789V breakouts have an always-on BL,
-        # but Anycubic boards wire it to a GPIO. Use [output_pin] in cfg if
-        # you'd rather drive it from a separate section.
-        bl_pin = config.get("backlight_pin", None)
+        # but Anycubic boards wire it to a GPIO. The framework handles it via PWM.
         self.mcu_bl = None
-        if bl_pin is not None:
-            self.mcu_bl = bus.MCU_bus_digital_out(
-                self.io.spi.get_mcu(), bl_pin,
-                self.io.spi.get_command_queue())
         # 20 cols x 8 rows of 16x28 px chars fits 320x240 with 16px slack
         self.cols = 20
         self.rows = 8
@@ -90,38 +84,73 @@ class ST7789V:
 
     def init(self):
         self.reset.init()
-        if self.mcu_bl is not None:
-            self.mcu_bl.update_digital_out(
-                1, reqclock=BACKGROUND_PRIORITY_CLOCK)
         send = self.io.send
-        # Sleep out
+        
+        # 11h: Sleep Out - Turn off sleep mode. Requires 120ms delay afterward.
         send([0x11])
         self._delay(0.12)
-        # MADCTL: landscape MY|MV|ML = 0xB0
+        
+        # 36h: Memory Data Access Control (MADCTL)
+        # 0xB0 = 10110000 -> MY=1 (Row Address Order), MV=1 (Row/Col Exchange), ML=1 (Vertical Refresh Order)
+        # Sets landscape orientation and drawing direction.
         send([0x36]); send([0xB0], is_data=True)
-        # Pixel format: 16-bit/pixel
+        
+        # 3Ah: Interface Pixel Format (COLMOD)
+        # 0x05 = 16 bits/pixel (RGB565)
         send([0x3A]); send([0x05], is_data=True)
-        # Frame rate / porch control
+        
+        # B2h: Porch Setting
+        # Controls front and back porch periods in normal mode, idle mode, and partial mode.
         send([0xB2]); send([0x05, 0x05, 0x00, 0x33, 0x33], is_data=True)
+        
+        # B7h: Gate Control
+        # 0x35 = VGH and VGL operating voltages.
         send([0xB7]); send([0x35], is_data=True)
-        # Power control
+        
+        # BBh: VCOM Setting
+        # 0x28 = VCOM voltage setting.
         send([0xBB]); send([0x28], is_data=True)
+        
+        # C0h: LCM Control
+        # 0x2C = Default logic control settings.
         send([0xC0]); send([0x2C], is_data=True)
+        
+        # C2h: VDV and VRH Command Enable
+        # 0x01 = User defined VRH and VDV.
         send([0xC2]); send([0x01], is_data=True)
+        
+        # C3h: VRH Set
+        # 0x0B = VRH voltage.
         send([0xC3]); send([0x0B], is_data=True)
+        
+        # C4h: VDV Set
+        # 0x20 = VDV voltage.
         send([0xC4]); send([0x20], is_data=True)
+        
+        # C6h: Frame Rate Control in Normal Mode
+        # 0x0F = 60Hz frame rate.
         send([0xC6]); send([0x0F], is_data=True)
+        
+        # D0h: Power Control 1
+        # 0xA4, 0xA1 = AVDD, AVCL, VDS, VGS voltages.
         send([0xD0]); send([0xA4, 0xA1], is_data=True)
-        # Gamma
+        
+        # E0h: Positive Voltage Gamma Control
+        # Fine-tunes the grayscale voltages for the positive polarity.
         send([0xE0]); send([0xD0, 0x01, 0x08, 0x0F, 0x11, 0x2A, 0x36,
                             0x55, 0x44, 0x3A, 0x0B, 0x06, 0x11, 0x20],
                            is_data=True)
+                           
+        # E1h: Negative Voltage Gamma Control
+        # Fine-tunes the grayscale voltages for the negative polarity.
         send([0xE1]); send([0xD0, 0x02, 0x07, 0x0A, 0x0B, 0x18, 0x34,
                             0x43, 0x4A, 0x2B, 0x1B, 0x1C, 0x22, 0x1F],
                            is_data=True)
-        # Display ON
+                           
+        # 29h: Display ON
         send([0x29])
         self._delay(0.05)
+        
         # Clear to black and force a full repaint on next flush.
         self._fill_rect(0, 0, 320, 240, COLOR_BLACK)
         for row in range(self.rows):

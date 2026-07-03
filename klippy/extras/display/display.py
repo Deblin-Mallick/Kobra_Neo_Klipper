@@ -6,7 +6,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, os, ast
-from . import aip31068_spi, hd44780, hd44780_spi, st7920, st7789v, uc1701, menu
+from . import aip31068_spi, hd44780, hd44780_spi, st7920, st7789v, uc1701, menu, spi_tft
 
 # Normal time between each screen redraw
 REDRAW_TIME = 0.500
@@ -19,7 +19,8 @@ LCD_chips = {
     'ssd1306': uc1701.SSD1306, 'sh1106': uc1701.SH1106,
     'hd44780_spi': hd44780_spi.hd44780_spi,
     'aip31068_spi':aip31068_spi.aip31068_spi,
-    'st7789v': st7789v.ST7789V
+    'st7789v': st7789v.ST7789V,
+    'spi_tft': spi_tft.SpiTftDisplay
 }
 
 # Storage of [display_template my_template] config sections
@@ -180,12 +181,18 @@ class PrinterLCD:
         self.reactor = self.printer.get_reactor()
         # Load low-level lcd handler
         self.lcd_chip = config.getchoice('lcd_type', LCD_chips)(config)
+        
+        # Allow the display driver to provide configuration overrides (e.g. hardware defaults)
+        menu_config = config
+        if hasattr(self.lcd_chip, 'get_menu_config'):
+            menu_config = self.lcd_chip.get_menu_config()
+            
         # Load menu and display_status
         self.menu = None
         name = config.get_name()
         if name == 'display':
             # only load menu for primary display
-            self.menu = menu.MenuManager(config, self)
+            self.menu = menu.MenuManager(menu_config, self)
         self.printer.load_object(config, "display_status")
         # Configurable display
         templates = lookup_display_templates(config)
