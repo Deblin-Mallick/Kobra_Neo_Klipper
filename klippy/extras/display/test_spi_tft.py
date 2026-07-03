@@ -1,6 +1,8 @@
 import unittest
-from .spi_tft import SpiTftConfigWrapper, register_display_controller, _DISPLAY_CONTROLLERS
-from .profiles import DisplayProfile, DisplayCapabilities, PinConfiguration, Rotation
+from .spi_tft import (SpiTftConfigWrapper, register_display_controller,
+                      _DISPLAY_CONTROLLERS)
+from .profiles import (DisplayProfile, DisplayCapabilities, PinConfiguration,
+                       Rotation)
 
 class MockConfig:
     def __init__(self, items):
@@ -30,8 +32,10 @@ class TestSpiTftFramework(unittest.TestCase):
         )
         profile = DisplayProfile(
             name="mock_profile", version=1,
-            controller="mock", width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
-            spi_frequency=20000000, touch_controller=None, capabilities=capabilities, pins=pins
+            controller="mock", width=240, height=240,
+            rotation=Rotation.ROTATE_0, color_order="RGB",
+            pixel_format="RGB565", spi_frequency=20000000,
+            touch_controller=None, capabilities=capabilities, pins=pins
         )
         self.assertFalse(profile.capabilities.backlight)
         self.assertFalse(profile.capabilities.buzzer)
@@ -48,16 +52,18 @@ class TestSpiTftFramework(unittest.TestCase):
         )
         profile = DisplayProfile(
             name="mock_profile", version=1,
-            controller="mock", width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
-            spi_frequency=40000000, touch_controller="xpt2046", capabilities=capabilities, pins=pins
+            controller="mock", width=240, height=240,
+            rotation=Rotation.ROTATE_0, color_order="RGB",
+            pixel_format="RGB565", spi_frequency=40000000,
+            touch_controller="xpt2046", capabilities=capabilities, pins=pins
         )
-        
+
         # User provides no overrides
         config = MockConfig({})
         wrapper = SpiTftConfigWrapper(config, profile)
         self.assertEqual(wrapper.get("cs_pin"), "PA1")
         self.assertEqual(wrapper.get("encoder_pins"), "PA3,PA4")
-        
+
         # User provides overrides
         config_override = MockConfig({"cs_pin": "PC13"})
         wrapper_override = SpiTftConfigWrapper(config_override, profile)
@@ -68,7 +74,7 @@ class TestSpiTftFramework(unittest.TestCase):
         @register_display_controller("mock_ctrl")
         class MockController:
             pass
-            
+
         self.assertIn("mock_ctrl", _DISPLAY_CONTROLLERS)
         self.assertEqual(_DISPLAY_CONTROLLERS["mock_ctrl"], MockController)
 

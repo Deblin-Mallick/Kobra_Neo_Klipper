@@ -6,7 +6,8 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, os, ast
-from . import aip31068_spi, hd44780, hd44780_spi, st7920, st7789v, uc1701, menu, spi_tft
+from . import (aip31068_spi, hd44780, hd44780_spi, st7920, st7789v,
+               uc1701, menu, spi_tft)
 
 # Normal time between each screen redraw
 REDRAW_TIME = 0.500
@@ -181,12 +182,12 @@ class PrinterLCD:
         self.reactor = self.printer.get_reactor()
         # Load low-level lcd handler
         self.lcd_chip = config.getchoice('lcd_type', LCD_chips)(config)
-        
-        # Allow the display driver to provide configuration overrides (e.g. hardware defaults)
+
+        # Allow the display driver to provide config overrides (e.g. hw defaults)
         menu_config = config
         if hasattr(self.lcd_chip, 'get_menu_config'):
             menu_config = self.lcd_chip.get_menu_config()
-            
+
         # Load menu and display_status
         self.menu = None
         name = config.get_name()

@@ -60,8 +60,8 @@ class ST7789V:
         # 4-wire SPI: cs_pin + dc_pin (plus shared sclk/mosi from spi_bus)
         self.io = SPI4wire(config, "dc_pin")
         self.reset = ResetHelper(config.get("rst_pin", None), self.io.spi)
-        # Optional backlight; many ST7789V breakouts have an always-on BL,
-        # but Anycubic boards wire it to a GPIO. The framework handles it via PWM.
+        # but Anycubic boards wire it to a GPIO.
+        # The framework handles it via PWM.
         self.mcu_bl = None
         # 20 cols x 8 rows of 16x28 px chars fits 320x240 with 16px slack
         self.cols = 20
@@ -85,72 +85,73 @@ class ST7789V:
     def init(self):
         self.reset.init()
         send = self.io.send
-        
+
         # 11h: Sleep Out - Turn off sleep mode. Requires 120ms delay afterward.
         send([0x11])
         self._delay(0.12)
-        
-        # 36h: Memory Data Access Control (MADCTL)
-        # 0xB0 = 10110000 -> MY=1 (Row Address Order), MV=1 (Row/Col Exchange), ML=1 (Vertical Refresh Order)
+
+        # 0xB0 = 10110000 -> MY=1 (Row Address Order), MV=1 (Row/Col Exchange),
+        # ML=1 (Vertical Refresh Order)
         # Sets landscape orientation and drawing direction.
         send([0x36]); send([0xB0], is_data=True)
-        
+
         # 3Ah: Interface Pixel Format (COLMOD)
         # 0x05 = 16 bits/pixel (RGB565)
         send([0x3A]); send([0x05], is_data=True)
-        
+
         # B2h: Porch Setting
-        # Controls front and back porch periods in normal mode, idle mode, and partial mode.
+        # Controls front and back porch periods in normal, idle,
+        # and partial modes.
         send([0xB2]); send([0x05, 0x05, 0x00, 0x33, 0x33], is_data=True)
-        
+
         # B7h: Gate Control
         # 0x35 = VGH and VGL operating voltages.
         send([0xB7]); send([0x35], is_data=True)
-        
+
         # BBh: VCOM Setting
         # 0x28 = VCOM voltage setting.
         send([0xBB]); send([0x28], is_data=True)
-        
+
         # C0h: LCM Control
         # 0x2C = Default logic control settings.
         send([0xC0]); send([0x2C], is_data=True)
-        
+
         # C2h: VDV and VRH Command Enable
         # 0x01 = User defined VRH and VDV.
         send([0xC2]); send([0x01], is_data=True)
-        
+
         # C3h: VRH Set
         # 0x0B = VRH voltage.
         send([0xC3]); send([0x0B], is_data=True)
-        
+
         # C4h: VDV Set
         # 0x20 = VDV voltage.
         send([0xC4]); send([0x20], is_data=True)
-        
+
         # C6h: Frame Rate Control in Normal Mode
         # 0x0F = 60Hz frame rate.
         send([0xC6]); send([0x0F], is_data=True)
-        
+
         # D0h: Power Control 1
         # 0xA4, 0xA1 = AVDD, AVCL, VDS, VGS voltages.
         send([0xD0]); send([0xA4, 0xA1], is_data=True)
-        
+
         # E0h: Positive Voltage Gamma Control
         # Fine-tunes the grayscale voltages for the positive polarity.
         send([0xE0]); send([0xD0, 0x01, 0x08, 0x0F, 0x11, 0x2A, 0x36,
                             0x55, 0x44, 0x3A, 0x0B, 0x06, 0x11, 0x20],
                            is_data=True)
-                           
+
         # E1h: Negative Voltage Gamma Control
         # Fine-tunes the grayscale voltages for the negative polarity.
         send([0xE1]); send([0xD0, 0x02, 0x07, 0x0A, 0x0B, 0x18, 0x34,
                             0x43, 0x4A, 0x2B, 0x1B, 0x1C, 0x22, 0x1F],
                            is_data=True)
-                           
+
         # 29h: Display ON
         send([0x29])
         self._delay(0.05)
-        
+
         # Clear to black and force a full repaint on next flush.
         self._fill_rect(0, 0, 320, 240, COLOR_BLACK)
         for row in range(self.rows):
@@ -287,8 +288,8 @@ class ST7789V:
                     self.old_text_buf[row][col] = self.text_buf[row][col]
                 if self.glyph_buf[row][col] != self.old_glyph_buf[row][col]:
                     glyph_names = self.glyph_buf[row][col]
-                    # logging.info(f"TestStart: {glyph_names}")
-                    self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE, bg=COLOR_BLACK)
+                    self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE,
+                                     bg=COLOR_BLACK)
                     self.old_glyph_buf[row][col] = glyph_names
 
     # def cache_glyph(self, glyph_name, base_glyph_name, glyph_id):

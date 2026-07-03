@@ -18,15 +18,15 @@ def register_display_controller(name):
         return cls
     return decorator
 
-# Register known controllers (in the future, these could be imported dynamically)
+# Register known controllers (can be imported dynamically later)
 register_display_controller("st7789v")(st7789v.ST7789V)
 
 class SpiTftConfigWrapper:
-    """Wraps Klipper config to provide profile defaults without mutating fileconfig"""
+    """Wraps config to provide profile defaults without mutating fileconfig"""
     def __init__(self, config, profile):
         self._config = config
         self._profile = profile
-        
+
         # Build dictionary of default pins
         self._defaults = {
             "spi_bus": profile.pins.spi_bus,
@@ -41,7 +41,8 @@ class SpiTftConfigWrapper:
 
     def get(self, option, default=None, **kwargs):
         if option in self._defaults:
-            if self._config.fileconfig.has_option(self._config.get_name(), option):
+            if self._config.fileconfig.has_option(self._config.get_name(),
+                                                  option):
                 return self._config.get(option, default, **kwargs)
             else:
                 return self._defaults[option]
@@ -56,45 +57,54 @@ class SpiTftDisplay:
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
         self.config = config
-        
+
         # Load Profile
         profile_name = config.get('profile', None)
         if profile_name is None:
-            raise config.error("SPI TFT display requires a 'profile' (e.g. profile: kobra_neo)")
-            
+            raise config.error("SPI TFT display requires a 'profile' "
+                               "(e.g. profile: kobra_neo)")
+
         self.profile = profiles.get_profile(profile_name)
         if self.profile is None:
             raise config.error("Unknown SPI TFT profile: %s" % (profile_name,))
-            
+
         self.wrapped_config = SpiTftConfigWrapper(config, self.profile)
-        
+
         # Debug Mode
         self.debug_mode = config.getboolean('debug', False)
-        
+
         # Instantiate Controller
         if self.profile.controller not in _DISPLAY_CONTROLLERS:
-            raise config.error("Unsupported controller: %s" % (self.profile.controller,))
-            
-        self.controller = _DISPLAY_CONTROLLERS[self.profile.controller](self.wrapped_config)
-        
+            raise config.error("Unsupported controller: %s" %
+                               (self.profile.controller,))
+
+        self.controller = _DISPLAY_CONTROLLERS[self.profile.controller](
+            self.wrapped_config)
+
         # Setup Diagnostics
         gcode = self.printer.lookup_object('gcode')
-        gcode.register_command("DISPLAY_INFO", self.cmd_DISPLAY_INFO, desc="Show display info")
-        gcode.register_command("DISPLAY_TEST", self.cmd_DISPLAY_TEST, desc="Run diagnostic display test")
-        gcode.register_command("DISPLAY_BENCHMARK", self.cmd_DISPLAY_BENCHMARK, desc="Run display framebuffer benchmark")
-        gcode.register_command("DISPLAY_RESET", self.cmd_DISPLAY_RESET, desc="Reset and reinitialize the display controller")
-        
+        gcode.register_command("DISPLAY_INFO", self.cmd_DISPLAY_INFO,
+                               desc="Show display info")
+        gcode.register_command("DISPLAY_TEST", self.cmd_DISPLAY_TEST,
+                               desc="Run diagnostic display test")
+        gcode.register_command("DISPLAY_BENCHMARK", self.cmd_DISPLAY_BENCHMARK,
+                               desc="Run display framebuffer benchmark")
+        gcode.register_command("DISPLAY_RESET", self.cmd_DISPLAY_RESET,
+                               desc="Reset display controller")
+
         # Splash Screen State Machine: BOOT -> SHOW -> NORMAL
         self.splash_state = "BOOT"
         self.splash_end_time = None
         self.printer.register_event_handler("klippy:ready", self._handle_ready)
-        
+
         # Backlight State
-        self.display_timeout = config.getfloat('display_timeout', 300.0, minval=0.0)
-        self.dim_level = config.getfloat('dim_level', 0.2, minval=0.0, maxval=1.0)
+        self.display_timeout = config.getfloat('display_timeout', 300.0,
+                                               minval=0.0)
+        self.dim_level = config.getfloat('dim_level', 0.2,
+                                         minval=0.0, maxval=1.0)
         self.last_activity_time = self.reactor.NOW
         self.is_dimmed = False
-        
+
         self.backlight = None
         if self.profile.capabilities.backlight:
             bl_pin = self.wrapped_config.get('backlight_pin')
@@ -103,10 +113,11 @@ class SpiTftDisplay:
             self.backlight.setup_max_duration(0.)
             self.backlight.setup_cycle_time(0.01)
             self.backlight.setup_start_value(1.0, 1.0, True)
-            
+
             if self.display_timeout > 0:
-                self.reactor.register_timer(self.backlight_timer_event, self.reactor.NOW)
-                
+                self.reactor.register_timer(self.backlight_timer_event,
+                                            self.reactor.NOW)
+
     def get_menu_config(self):
         """
         Return a configuration wrapper exposing menu-related defaults.
@@ -120,26 +131,28 @@ class SpiTftDisplay:
         return self.wrapped_config
 
     def _handle_ready(self):
-        # We safely load our own MenuKeys here since Klipper's MenuManager won't have initialized the pins yet
-        self.menu_keys = menu_keys.MenuKeys(self.wrapped_config, self._menu_callback)
-        
+        # Safely load MenuKeys here since MenuManager won't have initialized yet
+        self.menu_keys = menu_keys.MenuKeys(self.wrapped_config,
+                                            self._menu_callback)
+
         self.splash_end_time = self.reactor.NOW + 2.0
         self.splash_state = "SHOW"
-        
+
         if self.debug_mode:
             logging.info("SpiTftDisplay: Splash screen SHOW")
-        
+
         self.controller.clear()
         self.controller.write_text(3, 6, "Klipper")
-        self.controller.write_text(4, 1, "Profile: %s" % (self.config.get('profile')))
+        self.controller.write_text(4, 1,
+                                   "Profile: %s" % (self.config.get('profile')))
         self.controller.flush()
-        
+
     def _menu_callback(self, event, eventtime):
         self._activity_wakeup(eventtime)
-        
+
         if self.debug_mode:
             logging.info("SpiTftDisplay: encoder event %s", event)
-            
+
         evt_map = {
             'up': 'ccw',
             'down': 'cw',
@@ -148,21 +161,21 @@ class SpiTftDisplay:
             'click': 'press',
             'long_click': 'long_press'
         }
-        
+
         mapped = evt_map.get(event)
         if mapped:
             self.printer.send_event(f"display:encoder_{mapped}")
-            
+
         display_obj = self.printer.lookup_object('display', None)
         if display_obj is not None and display_obj.menu is not None:
             display_obj.menu.key_event(event, eventtime)
-        
+
     def _activity_wakeup(self, eventtime):
         self.last_activity_time = eventtime
         if self.is_dimmed and self.backlight is not None:
             self.is_dimmed = False
             self.backlight.set_pwm(1.0, 1.0)
-            
+
     def backlight_timer_event(self, eventtime):
         if not self.is_dimmed:
             if (eventtime - self.last_activity_time) >= self.display_timeout:
@@ -171,10 +184,16 @@ class SpiTftDisplay:
         return eventtime + 1.0
 
     # --- Diagnostics ---
-    
+
     def cmd_DISPLAY_INFO(self, gcmd):
         freq = self.profile.spi_frequency
         freq_str = f"{freq / 1000000.0:.1f} MHz" if freq else "Unknown/Default"
+        cap = self.profile.capabilities
+        bl = 'Yes' if cap.backlight else 'No'
+        enc = 'Yes' if cap.encoder else 'No'
+        tch = f"Yes ({self.profile.touch_controller})" if cap.touch else 'No'
+        bz = 'Yes' if cap.buzzer else 'No'
+        
         msg = (
             "SPI TFT Framework\n\n"
             f"Framework Version: 1\n"
@@ -185,20 +204,21 @@ class SpiTftDisplay:
             f"Color Order: {self.profile.color_order}\n"
             f"SPI Frequency: {freq_str}\n\n"
             "Capabilities:\n"
-            f"  Backlight: {'Yes' if self.profile.capabilities.backlight else 'No'}\n"
-            f"  Encoder: {'Yes' if self.profile.capabilities.encoder else 'No'}\n"
-            f"  Touch: {'Yes (' + str(self.profile.touch_controller) + ')' if self.profile.capabilities.touch else 'No'}\n"
-            f"  Buzzer: {'Yes' if self.profile.capabilities.buzzer else 'No'}\n"
+            f"  Backlight: {bl}\n"
+            f"  Encoder: {enc}\n"
+            f"  Touch: {tch}\n"
+            f"  Buzzer: {bz}\n"
         )
         gcmd.respond_info(msg)
-    
+
     def cmd_DISPLAY_TEST(self, gcmd):
         seq = [
             "Red", "Green", "Blue", "White", "Checkerboard",
             "Text", "Glyphs", "Encoder", "Backlight", "Buzzer"
         ]
-        gcmd.respond_info("DISPLAY_TEST sequence: " + " -> ".join(seq) + "\n(Test execution not fully implemented yet.)")
-        
+        gcmd.respond_info("DISPLAY_TEST sequence: " + " -> ".join(seq) +
+                          "\n(Test execution not fully implemented yet.)")
+
     def cmd_DISPLAY_RESET(self, gcmd):
         gcmd.respond_info("Resetting SPI TFT controller...")
         # If the controller supports reset, call it
@@ -210,10 +230,10 @@ class SpiTftDisplay:
         self.splash_state = "BOOT"
         self._handle_ready()
         gcmd.respond_info("Display reset complete.")
-        
+
     def cmd_DISPLAY_BENCHMARK(self, gcmd):
         iterations = 50
-        
+
         # Benchmark SPI hardware transfer time
         hw_times = []
         for i in range(iterations):
@@ -224,9 +244,9 @@ class SpiTftDisplay:
             self.controller.flush()
             t2 = self.reactor.NOW
             hw_times.append(t2 - t1)
-            
+
         avg_hw = sum(hw_times) / len(hw_times)
-        
+
         # Benchmark software rendering time (mocking menu render)
         sw_times = []
         for i in range(iterations):
@@ -235,14 +255,14 @@ class SpiTftDisplay:
             self.write_text(0, 0, "Benchmark Rendering Test")
             t2 = self.reactor.NOW
             sw_times.append(t2 - t1)
-            
+
         avg_sw = sum(sw_times) / len(sw_times)
         total_frame = avg_hw + avg_sw
-        
+
         hw_fps = 1.0 / avg_hw if avg_hw > 0 else 0
         sw_fps = 1.0 / avg_sw if avg_sw > 0 else 0
         total_fps = 1.0 / total_frame if total_frame > 0 else 0
-        
+
         msg = (
             "Display benchmark:\n"
             f"  Controller: {self.profile.controller}\n"
@@ -259,22 +279,22 @@ class SpiTftDisplay:
 
     def get_dimensions(self):
         return self.controller.get_dimensions()
-        
+
     def clear(self):
         if self.splash_state == "NORMAL":
             self.controller.clear()
-            
+
     def write_text(self, x, y, data):
         if self.splash_state == "NORMAL":
             self.controller.write_text(x, y, data)
-            
+
     def write_glyph(self, x, y, glyph_name):
         if self.splash_state == "NORMAL":
             self.controller.write_glyph(x, y, glyph_name)
-            
+
     def set_glyphs(self, glyphs):
         self.controller.set_glyphs(glyphs)
-        
+
     def flush(self):
         if self.splash_state == "BOOT":
             return
@@ -292,11 +312,11 @@ class SpiTftDisplay:
                 self.controller.flush()
         elif self.splash_state == "NORMAL":
             self.controller.flush()
-            
+
     def sleep(self):
         if hasattr(self.controller, 'sleep'):
             self.controller.sleep()
-            
+
     def wake(self):
         if hasattr(self.controller, 'wake'):
             self.controller.wake()
