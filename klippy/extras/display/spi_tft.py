@@ -218,7 +218,8 @@ class SpiTftDisplay:
         if eventtime is None:
             eventtime = self.reactor.NOW
         mcu = self.backlight.get_mcu()
-        print_time = mcu.estimated_print_time(eventtime + mcu.min_schedule_time())
+        print_time = mcu.estimated_print_time(
+            eventtime + mcu.min_schedule_time())
         self.backlight.set_pwm(print_time, value)
 
     def _activity_wakeup(self, eventtime):
@@ -425,7 +426,8 @@ class SpiTftDisplay:
                         pins = self.printer.lookup_object('pins')
                         buzzer = pins.setup_pin('pwm', buzzer_pin)
                         mcu = buzzer.get_mcu()
-                        print_time = mcu.estimated_print_time(eventtime + mcu.min_schedule_time())
+                        print_time = mcu.estimated_print_time(
+                            eventtime + mcu.min_schedule_time())
                         buzzer.set_pwm(print_time, 0.0)
                     except Exception:
                         pass
