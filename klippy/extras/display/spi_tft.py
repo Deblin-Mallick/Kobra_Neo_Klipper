@@ -212,17 +212,26 @@ class SpiTftDisplay:
             if self.test_state == TestPhase.IDLE:
                 display_obj.menu.key_event(event, eventtime)
 
+    def _set_backlight(self, value, eventtime=None):
+        if self.backlight is None:
+            return
+        if eventtime is None:
+            eventtime = self.reactor.NOW
+        mcu = self.backlight.get_mcu()
+        print_time = mcu.estimated_print_time(eventtime + mcu.min_schedule_time())
+        self.backlight.set_pwm(print_time, value)
+
     def _activity_wakeup(self, eventtime):
         self.last_activity_time = eventtime
         if self.is_dimmed and self.backlight is not None:
             self.is_dimmed = False
-            self.backlight.set_pwm(1.0, 1.0)
+            self._set_backlight(1.0, eventtime)
 
     def backlight_timer_event(self, eventtime):
         if not self.is_dimmed:
             if (eventtime - self.last_activity_time) >= self.display_timeout:
                 self.is_dimmed = True
-                self.backlight.set_pwm(self.dim_level, 1.0)
+                self._set_backlight(self.dim_level, eventtime)
         return eventtime + 1.0
 
     # --- Diagnostics ---
@@ -374,7 +383,7 @@ class SpiTftDisplay:
         elif self.test_state == TestPhase.BACKLIGHT:
             if self.profile.capabilities.backlight and self.backlight:
                 # Dim to 0
-                self.backlight.set_pwm(0.0, 1.0)
+                self._set_backlight(0.0, eventtime)
                 self.test_backlight_result = "PASS"
             else:
                 self.test_backlight_result = "NOT SUPPORTED"
@@ -384,7 +393,7 @@ class SpiTftDisplay:
         elif self.test_state == TestPhase.BUZZER:
             # Restore backlight
             if self.profile.capabilities.backlight and self.backlight:
-                self.backlight.set_pwm(1.0, 1.0)
+                self._set_backlight(1.0, eventtime)
 
             if self.profile.capabilities.buzzer:
                 buzzer_pin = self.wrapped_config.get('buzzer_pin', None)
@@ -415,7 +424,9 @@ class SpiTftDisplay:
                     try:
                         pins = self.printer.lookup_object('pins')
                         buzzer = pins.setup_pin('pwm', buzzer_pin)
-                        buzzer.set_pwm(0.0, 0.0)
+                        mcu = buzzer.get_mcu()
+                        print_time = mcu.estimated_print_time(eventtime + mcu.min_schedule_time())
+                        buzzer.set_pwm(print_time, 0.0)
                     except Exception:
                         pass
 
@@ -426,8 +437,7 @@ class SpiTftDisplay:
             # Restore state
             self.splash_state = self.test_saved_splash
             if self.profile.capabilities.backlight and self.backlight:
-                self.backlight.set_pwm(self.test_saved_backlight,
-                                       self.test_saved_backlight)
+                self._set_backlight(self.test_saved_backlight)
 
             # Force full refresh of the standard menu
             display_obj = self.printer.lookup_object('display', None)
