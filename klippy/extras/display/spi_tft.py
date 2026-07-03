@@ -29,15 +29,15 @@ class SpiTftConfigWrapper:
         
         # Build dictionary of default pins
         self._defaults = {
-            "spi_bus": profile.spi_bus,
-            "cs_pin": profile.cs_pin,
-            "dc_pin": profile.dc_pin,
+            "spi_bus": profile.pins.spi_bus,
+            "cs_pin": profile.pins.cs_pin,
+            "dc_pin": profile.pins.dc_pin,
         }
-        if profile.capabilities.has_encoder:
-            self._defaults["encoder_pins"] = profile.encoder_pins
-            self._defaults["click_pin"] = profile.click_pin
-        if profile.capabilities.has_buzzer:
-            self._defaults["buzzer_pin"] = profile.buzzer_pin
+        if profile.capabilities.encoder:
+            self._defaults["encoder_pins"] = profile.pins.encoder_pins
+            self._defaults["click_pin"] = profile.pins.click_pin
+        if profile.capabilities.buzzer:
+            self._defaults["buzzer_pin"] = profile.pins.buzzer_pin
 
     def get(self, option, default=None, **kwargs):
         if option in self._defaults:
@@ -82,6 +82,7 @@ class SpiTftDisplay:
         gcode.register_command("DISPLAY_INFO", self.cmd_DISPLAY_INFO, desc="Show display info")
         gcode.register_command("DISPLAY_TEST", self.cmd_DISPLAY_TEST, desc="Run diagnostic display test")
         gcode.register_command("DISPLAY_BENCHMARK", self.cmd_DISPLAY_BENCHMARK, desc="Run display framebuffer benchmark")
+        gcode.register_command("DISPLAY_RESET", self.cmd_DISPLAY_RESET, desc="Reset and reinitialize the display controller")
         
         # Splash Screen State Machine: BOOT -> SHOW -> NORMAL
         self.splash_state = "BOOT"
@@ -95,7 +96,7 @@ class SpiTftDisplay:
         self.is_dimmed = False
         
         self.backlight = None
-        if self.profile.capabilities.has_backlight:
+        if self.profile.capabilities.backlight:
             bl_pin = self.wrapped_config.get('backlight_pin')
             pins = self.printer.lookup_object('pins')
             self.backlight = pins.setup_pin('pwm', bl_pin)
@@ -175,27 +176,40 @@ class SpiTftDisplay:
         freq = self.profile.spi_frequency
         freq_str = f"{freq / 1000000.0:.1f} MHz" if freq else "Unknown/Default"
         msg = (
-            "Display Information:\n"
-            f"  Driver: spi_tft\n"
-            f"  Controller: {self.profile.controller}\n"
-            f"  Profile: {self.config.get('profile')} (v{self.profile.version})\n"
-            f"  Resolution: {self.profile.width}x{self.profile.height}\n"
-            f"  Rotation: {self.profile.rotation}°\n"
-            f"  Color order: {self.profile.color_order}\n"
-            f"  Pixel format: {self.profile.pixel_format}\n"
-            f"  SPI frequency: {freq_str}\n"
-            "  Capabilities:\n"
-            f"    Backlight: {'Yes' if self.profile.capabilities.has_backlight else 'No'}\n"
-            f"    Buzzer: {'Yes' if self.profile.capabilities.has_buzzer else 'No'}\n"
-            f"    Encoder: {'Yes' if self.profile.capabilities.has_encoder else 'No'}\n"
-            f"    Touch: {'Yes (' + str(self.profile.touch_controller) + ')' if self.profile.capabilities.has_touch else 'No'}\n"
+            "SPI TFT Framework\n\n"
+            f"Framework Version: 1\n"
+            f"Profile: {self.profile.name} (v{self.profile.version})\n"
+            f"Controller: {self.profile.controller}\n\n"
+            f"Resolution: {self.profile.width}x{self.profile.height}\n"
+            f"Rotation: {self.profile.rotation.value}°\n"
+            f"Color Order: {self.profile.color_order}\n"
+            f"SPI Frequency: {freq_str}\n\n"
+            "Capabilities:\n"
+            f"  Backlight: {'Yes' if self.profile.capabilities.backlight else 'No'}\n"
+            f"  Encoder: {'Yes' if self.profile.capabilities.encoder else 'No'}\n"
+            f"  Touch: {'Yes (' + str(self.profile.touch_controller) + ')' if self.profile.capabilities.touch else 'No'}\n"
+            f"  Buzzer: {'Yes' if self.profile.capabilities.buzzer else 'No'}\n"
         )
         gcmd.respond_info(msg)
     
     def cmd_DISPLAY_TEST(self, gcmd):
-        # Placeholder for standardized DISPLAY_TEST sequence:
-        # Solid colors -> Checkerboard -> Text rendering -> Glyph rendering -> Encoder -> Backlight -> Buzzer
-        gcmd.respond_info("DISPLAY_TEST not fully implemented in generic driver yet.")
+        seq = [
+            "Red", "Green", "Blue", "White", "Checkerboard",
+            "Text", "Glyphs", "Encoder", "Backlight", "Buzzer"
+        ]
+        gcmd.respond_info("DISPLAY_TEST sequence: " + " -> ".join(seq) + "\n(Test execution not fully implemented yet.)")
+        
+    def cmd_DISPLAY_RESET(self, gcmd):
+        gcmd.respond_info("Resetting SPI TFT controller...")
+        # If the controller supports reset, call it
+        if hasattr(self.controller, 'reset'):
+            self.controller.reset()
+        elif hasattr(self.controller, 'init'):
+            self.controller.init()
+        self.clear()
+        self.splash_state = "BOOT"
+        self._handle_ready()
+        gcmd.respond_info("Display reset complete.")
         
     def cmd_DISPLAY_BENCHMARK(self, gcmd):
         iterations = 50
@@ -233,10 +247,11 @@ class SpiTftDisplay:
             "Display benchmark:\n"
             f"  Controller: {self.profile.controller}\n"
             f"  Resolution: {self.profile.width}x{self.profile.height}\n"
-            f"  Software rendering time: {avg_sw*1000:.1f} ms ({sw_fps:.1f} FPS limit)\n"
-            f"  SPI transfer time: {avg_hw*1000:.1f} ms ({hw_fps:.1f} FPS limit)\n"
-            f"  Total frame time: {total_frame*1000:.1f} ms\n"
-            f"  Effective FPS: {total_fps:.1f}\n"
+            f"  Render Time: {avg_sw*1000:.1f} ms\n"
+            f"  SPI Transfer Time: {avg_hw*1000:.1f} ms\n"
+            f"  Total Frame Time: {total_frame*1000:.1f} ms\n"
+            f"  Average FPS: {total_fps:.1f}\n"
+            f"  Peak FPS: {hw_fps:.1f} (hardware limited)\n"
         )
         gcmd.respond_info(msg)
 
@@ -277,3 +292,11 @@ class SpiTftDisplay:
                 self.controller.flush()
         elif self.splash_state == "NORMAL":
             self.controller.flush()
+            
+    def sleep(self):
+        if hasattr(self.controller, 'sleep'):
+            self.controller.sleep()
+            
+    def wake(self):
+        if hasattr(self.controller, 'wake'):
+            self.controller.wake()

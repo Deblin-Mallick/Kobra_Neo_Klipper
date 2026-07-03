@@ -1,6 +1,6 @@
 import unittest
 from .spi_tft import SpiTftConfigWrapper, register_display_controller, _DISPLAY_CONTROLLERS
-from .profiles import DisplayProfile, DisplayCapabilities, Rotation
+from .profiles import DisplayProfile, DisplayCapabilities, PinConfiguration, Rotation
 
 class MockConfig:
     def __init__(self, items):
@@ -21,31 +21,35 @@ class MockConfig:
 class TestSpiTftFramework(unittest.TestCase):
     def test_profile_capabilities(self):
         capabilities = DisplayCapabilities(
-            has_backlight=False, has_buzzer=False, has_encoder=True, has_touch=False
+            backlight=False, buzzer=False, encoder=True, touch=False
+        )
+        pins = PinConfiguration(
+            spi_bus="spi1", cs_pin="PA1", dc_pin="PA2", reset_pin=None,
+            backlight_pin=None, encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin=None,
+            touch_cs_pin=None, touch_irq_pin=None
         )
         profile = DisplayProfile(
-            version=1,
-            controller="mock", spi_bus="spi1", cs_pin="PA1", dc_pin="PA2",
-            reset_pin=None, backlight_pin=None, encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin=None,
-            touch_cs_pin=None, touch_irq_pin=None,
-            width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
-            spi_frequency=20000000, touch_controller=None, capabilities=capabilities
+            name="mock_profile", version=1,
+            controller="mock", width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
+            spi_frequency=20000000, touch_controller=None, capabilities=capabilities, pins=pins
         )
-        self.assertFalse(profile.capabilities.has_backlight)
-        self.assertFalse(profile.capabilities.has_buzzer)
-        self.assertTrue(profile.capabilities.has_encoder)
+        self.assertFalse(profile.capabilities.backlight)
+        self.assertFalse(profile.capabilities.buzzer)
+        self.assertTrue(profile.capabilities.encoder)
 
     def test_config_wrapper(self):
         capabilities = DisplayCapabilities(
-            has_backlight=True, has_buzzer=True, has_encoder=True, has_touch=True
+            backlight=True, buzzer=True, encoder=True, touch=True
+        )
+        pins = PinConfiguration(
+            spi_bus="spi1", cs_pin="PA1", dc_pin="PA2", reset_pin=None,
+            backlight_pin="PB1", encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin="PB2",
+            touch_cs_pin="PC1", touch_irq_pin="PC2"
         )
         profile = DisplayProfile(
-            version=1,
-            controller="mock", spi_bus="spi1", cs_pin="PA1", dc_pin="PA2",
-            reset_pin=None, backlight_pin="PB1", encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin="PB2",
-            touch_cs_pin="PC1", touch_irq_pin="PC2",
-            width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
-            spi_frequency=40000000, touch_controller="xpt2046", capabilities=capabilities
+            name="mock_profile", version=1,
+            controller="mock", width=240, height=240, rotation=Rotation.ROTATE_0, color_order="RGB", pixel_format="RGB565",
+            spi_frequency=40000000, touch_controller="xpt2046", capabilities=capabilities, pins=pins
         )
         
         # User provides no overrides

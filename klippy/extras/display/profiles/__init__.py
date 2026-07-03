@@ -5,8 +5,9 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 from dataclasses import dataclass
 from typing import Optional
+from enum import Enum
 
-class Rotation:
+class Rotation(Enum):
     ROTATE_0 = 0
     ROTATE_90 = 90
     ROTATE_180 = 180
@@ -14,15 +15,13 @@ class Rotation:
 
 @dataclass(frozen=True)
 class DisplayCapabilities:
-    has_backlight: bool
-    has_buzzer: bool
-    has_encoder: bool
-    has_touch: bool
+    backlight: bool
+    buzzer: bool
+    encoder: bool
+    touch: bool
 
 @dataclass(frozen=True)
-class DisplayProfile:
-    version: int
-    controller: str
+class PinConfiguration:
     spi_bus: str
     cs_pin: str
     dc_pin: str
@@ -33,16 +32,21 @@ class DisplayProfile:
     buzzer_pin: Optional[str]
     touch_cs_pin: Optional[str]
     touch_irq_pin: Optional[str]
-    
+
+@dataclass(frozen=True)
+class DisplayProfile:
+    name: str
+    version: int
+    controller: str
     width: int
     height: int
-    rotation: int
+    rotation: Rotation
     color_order: str
     pixel_format: str
-    
     spi_frequency: Optional[int]
     touch_controller: Optional[str]
     capabilities: DisplayCapabilities
+    pins: PinConfiguration
 
 # Load available profiles
 from . import kobra_neo
