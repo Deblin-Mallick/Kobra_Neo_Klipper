@@ -144,7 +144,7 @@ class SpiTftDisplay:
             self.backlight = pins.setup_pin('pwm', bl_pin)
             self.backlight.setup_max_duration(0.)
             self.backlight.setup_cycle_time(0.01)
-            self.backlight.setup_start_value(1.0, 1.0, True)
+            self.backlight.setup_start_value(1.0, 1.0)
 
             if self.display_timeout > 0:
                 self.reactor.register_timer(self.backlight_timer_event,
@@ -394,7 +394,7 @@ class SpiTftDisplay:
                         buzzer = pins.setup_pin('pwm', buzzer_pin)
                         buzzer.setup_max_duration(0.)
                         buzzer.setup_cycle_time(0.001)
-                        buzzer.setup_start_value(0.5, 0.5, True)
+                        buzzer.setup_start_value(0.5, 0.5)
                         # We would need to turn it off after 500ms, but Klipper
                         # PWM pins lack a simple async off.
                         # For now, just mark PASS.
