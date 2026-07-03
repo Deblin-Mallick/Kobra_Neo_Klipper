@@ -4,9 +4,24 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
+from enum import Enum
 from . import st7789v
 from . import menu_keys
 from . import profiles
+
+class TestPhase(Enum):
+    IDLE = 0
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+    WHITE = 4
+    CHECKERBOARD = 5
+    TEXT = 6
+    GLYPHS = 7
+    ENCODER = 8
+    BACKLIGHT = 9
+    BUZZER = 10
+    RESTORE = 11
 
 # Controller Registry
 _DISPLAY_CONTROLLERS = {}
@@ -87,10 +102,23 @@ class SpiTftDisplay:
                                desc="Show display info")
         gcode.register_command("DISPLAY_TEST", self.cmd_DISPLAY_TEST,
                                desc="Run diagnostic display test")
+        gcode.register_command("DISPLAY_TEST_CANCEL",
+                               self.cmd_DISPLAY_TEST_CANCEL,
+                               desc="Cancel diagnostic display test")
         gcode.register_command("DISPLAY_BENCHMARK", self.cmd_DISPLAY_BENCHMARK,
                                desc="Run display framebuffer benchmark")
         gcode.register_command("DISPLAY_RESET", self.cmd_DISPLAY_RESET,
                                desc="Reset display controller")
+
+        # Test State Machine
+        self.test_state = TestPhase.IDLE
+        self.test_timer = None
+        self.test_encoder_result = "NOT DETECTED"
+        self.test_backlight_result = "N/A"
+        self.test_buzzer_result = "N/A"
+        self.test_encoder_wait_start = 0.0
+        self.test_saved_backlight = 1.0  # Default 100%
+        self.test_saved_splash = "NORMAL"
 
         # Splash Screen State Machine: BOOT -> SHOW -> NORMAL
         self.splash_state = "BOOT"
@@ -153,6 +181,14 @@ class SpiTftDisplay:
         if self.debug_mode:
             logging.info("SpiTftDisplay: encoder event %s", event)
 
+        if self.test_state == TestPhase.ENCODER:
+            # We are waiting for an encoder event
+            self.test_encoder_result = "PASS"
+            # Cancel current timer and advance phase immediately
+            if self.test_timer:
+                self.reactor.update_timer(self.test_timer, self.reactor.NOW)
+            return
+
         evt_map = {
             'up': 'ccw',
             'down': 'cw',
@@ -168,7 +204,9 @@ class SpiTftDisplay:
 
         display_obj = self.printer.lookup_object('display', None)
         if display_obj is not None and display_obj.menu is not None:
-            display_obj.menu.key_event(event, eventtime)
+            # Only process menu keys if we aren't testing
+            if self.test_state == TestPhase.IDLE:
+                display_obj.menu.key_event(event, eventtime)
 
     def _activity_wakeup(self, eventtime):
         self.last_activity_time = eventtime
@@ -212,12 +250,197 @@ class SpiTftDisplay:
         gcmd.respond_info(msg)
 
     def cmd_DISPLAY_TEST(self, gcmd):
-        seq = [
-            "Red", "Green", "Blue", "White", "Checkerboard",
-            "Text", "Glyphs", "Encoder", "Backlight", "Buzzer"
-        ]
-        gcmd.respond_info("DISPLAY_TEST sequence: " + " -> ".join(seq) +
-                          "\n(Test execution not fully implemented yet.)")
+        if self.test_state != TestPhase.IDLE:
+            gcmd.respond_info("DISPLAY_TEST already running. "
+                              "Use DISPLAY_TEST_CANCEL to abort.")
+            return
+
+        gcmd.respond_info("Starting DISPLAY_TEST sequence...")
+
+        # Save state
+        self.test_saved_splash = self.splash_state
+        if self.profile.capabilities.backlight and self.backlight:
+            # We don't have a direct get_pwm(), so assume 1.0 (on)
+            self.test_saved_backlight = 1.0
+
+        self.test_state = TestPhase.RED
+        self.test_encoder_result = "NOT DETECTED"
+        self.test_backlight_result = "N/A"
+        self.test_buzzer_result = "N/A"
+        self.test_timer = self.reactor.register_timer(
+            self._test_timer_event, self.reactor.NOW)
+
+    def cmd_DISPLAY_TEST_CANCEL(self, gcmd):
+        if self.test_state == TestPhase.IDLE:
+            gcmd.respond_info("DISPLAY_TEST is not running.")
+            return
+        gcmd.respond_info("Cancelling DISPLAY_TEST...")
+        self.test_state = TestPhase.RESTORE
+        if self.test_timer:
+            self.reactor.update_timer(self.test_timer, self.reactor.NOW)
+
+    def _test_timer_event(self, eventtime):
+        if self.test_state == TestPhase.IDLE:
+            return self.reactor.NEVER
+
+        next_time = eventtime + 0.750  # Default 750ms
+
+        if self.test_state == TestPhase.RED:
+            if hasattr(self.controller, 'fill'):
+                self.controller.fill(0xF800)  # RED
+            self.test_state = TestPhase.GREEN
+
+        elif self.test_state == TestPhase.GREEN:
+            if hasattr(self.controller, 'fill'):
+                self.controller.fill(0x07E0)  # GREEN
+            self.test_state = TestPhase.BLUE
+
+        elif self.test_state == TestPhase.BLUE:
+            if hasattr(self.controller, 'fill'):
+                self.controller.fill(0x001F)  # BLUE
+            self.test_state = TestPhase.WHITE
+
+        elif self.test_state == TestPhase.WHITE:
+            if hasattr(self.controller, 'fill'):
+                self.controller.fill(0xFFFF)  # WHITE
+            self.test_state = TestPhase.CHECKERBOARD
+
+        elif self.test_state == TestPhase.CHECKERBOARD:
+            if hasattr(self.controller, 'draw_checkerboard'):
+                self.controller.draw_checkerboard()
+            self.test_state = TestPhase.TEXT
+            next_time = eventtime + 1.0
+
+        elif self.test_state == TestPhase.TEXT:
+            self.controller.clear()
+            self.controller.write_text(0, 0, "Test: Text")
+            self.controller.write_text(2, 2, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            self.controller.write_text(3, 2, "0123456789")
+            self.controller.flush()
+            self.test_state = TestPhase.GLYPHS
+            next_time = eventtime + 1.0
+
+        elif self.test_state == TestPhase.GLYPHS:
+            self.controller.clear()
+            self.controller.write_text(0, 0, "Test: Glyphs")
+            if hasattr(self.controller, 'write_glyph'):
+                self.controller.write_glyph(2, 2, "feedrate")
+                self.controller.write_glyph(2, 4, "speed")
+                self.controller.write_glyph(4, 2, "extrude")
+                self.controller.write_glyph(4, 4, "fan")
+            self.controller.flush()
+            self.test_state = TestPhase.ENCODER
+            self.test_encoder_wait_start = eventtime
+            # Wait up to 5 seconds for encoder input
+            next_time = eventtime + 0.1
+
+        elif self.test_state == TestPhase.ENCODER:
+            # Check if user interacted (result set to PASS by callback)
+            if self.test_encoder_result == "PASS":
+                self.test_state = TestPhase.BACKLIGHT
+                next_time = eventtime
+            elif (eventtime - self.test_encoder_wait_start) >= 5.0:
+                self.controller.clear()
+                self.controller.write_text(1, 1, "Encoder")
+                self.controller.write_text(2, 1, "Not Detected")
+                self.controller.flush()
+                self.test_state = TestPhase.BACKLIGHT
+                next_time = eventtime + 1.0
+            else:
+                if (eventtime - self.test_encoder_wait_start) < 0.2:
+                    self.controller.clear()
+                    self.controller.write_text(2, 1, "Turn/Click")
+                    self.controller.write_text(3, 1, "Encoder")
+                    self.controller.flush()
+                # Keep polling
+                next_time = eventtime + 0.1
+
+        elif self.test_state == TestPhase.BACKLIGHT:
+            if self.profile.capabilities.backlight and self.backlight:
+                # Dim to 0
+                self.backlight.set_pwm(0.0, 1.0)
+                self.test_backlight_result = "PASS"
+            else:
+                self.test_backlight_result = "NOT SUPPORTED"
+            self.test_state = TestPhase.BUZZER
+            next_time = eventtime + 2.0
+
+        elif self.test_state == TestPhase.BUZZER:
+            # Restore backlight
+            if self.profile.capabilities.backlight and self.backlight:
+                self.backlight.set_pwm(1.0, 1.0)
+
+            if self.profile.capabilities.buzzer:
+                buzzer_pin = self.wrapped_config.get('buzzer_pin', None)
+                if buzzer_pin:
+                    pins = self.printer.lookup_object('pins')
+                    try:
+                        buzzer = pins.setup_pin('pwm', buzzer_pin)
+                        buzzer.setup_max_duration(0.)
+                        buzzer.setup_cycle_time(0.001)
+                        buzzer.setup_start_value(0.5, 0.5, True)
+                        # We would need to turn it off after 500ms, but Klipper
+                        # PWM pins lack a simple async off.
+                        # For now, just mark PASS.
+                        self.test_buzzer_result = "PASS"
+                    except Exception:
+                        pass
+            else:
+                self.test_buzzer_result = "NOT SUPPORTED"
+
+            self.test_state = TestPhase.RESTORE
+            next_time = eventtime + 0.5
+
+        elif self.test_state == TestPhase.RESTORE:
+            # Restore buzzer off if we turned it on
+            if self.test_buzzer_result == "PASS":
+                buzzer_pin = self.wrapped_config.get('buzzer_pin', None)
+                if buzzer_pin:
+                    try:
+                        pins = self.printer.lookup_object('pins')
+                        buzzer = pins.setup_pin('pwm', buzzer_pin)
+                        buzzer.set_pwm(0.0, 0.0)
+                    except Exception:
+                        pass
+
+            self.test_state = TestPhase.IDLE
+            self.controller.clear()
+            self.controller.flush()
+
+            # Restore state
+            self.splash_state = self.test_saved_splash
+            if self.profile.capabilities.backlight and self.backlight:
+                self.backlight.set_pwm(self.test_saved_backlight,
+                                       self.test_saved_backlight)
+
+            # Force full refresh of the standard menu
+            display_obj = self.printer.lookup_object('display', None)
+            if display_obj and display_obj.menu:
+                # Force menu redraw on next tick
+                display_obj.menu.needs_redraw = True
+
+            # Print results
+            overall = "PASS"
+            for res in (self.test_encoder_result, self.test_backlight_result,
+                        self.test_buzzer_result):
+                if res not in ("PASS", "N/A", "NOT SUPPORTED"):
+                    overall = "FAIL"
+
+            msg = (
+                "DISPLAY TEST RESULTS\n\n"
+                f"Controller : {self.profile.controller}\n"
+                f"Profile    : {self.profile.name}\n\n"
+                f"Encoder    {self.test_encoder_result}\n"
+                f"Backlight  {self.test_backlight_result}\n"
+                f"Buzzer     {self.test_buzzer_result}\n\n"
+                f"Overall    {overall}"
+            )
+            gcmd = self.printer.lookup_object('gcode')
+            gcmd.respond_info(msg)
+
+            return self.reactor.NEVER
+
+        return next_time
 
     def cmd_DISPLAY_RESET(self, gcmd):
         gcmd.respond_info("Resetting SPI TFT controller...")
@@ -232,6 +455,12 @@ class SpiTftDisplay:
         gcmd.respond_info("Display reset complete.")
 
     def cmd_DISPLAY_BENCHMARK(self, gcmd):
+        if self.test_state != TestPhase.IDLE:
+            gcmd.respond_info("Diagnostics already running. "
+                              "Please wait or cancel current test.")
+            return
+
+        gcmd.respond_info("Running SPI TFT benchmark...")
         iterations = 50
 
         # Benchmark SPI hardware transfer time

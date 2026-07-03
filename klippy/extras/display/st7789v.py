@@ -348,3 +348,20 @@ class ST7789V:
                 self.glyph_buf[row][col] = ' '
     def get_dimensions(self):
         return (self.cols, self.rows)
+
+    def fill(self, color):
+        """Hardware test: Fill the entire screen with a 16-bit RGB565 color."""
+        self._fill_rect(0, 0, 320, 240, color)
+
+    def draw_checkerboard(self, tile_size=8):
+        """Hardware test: Draw a full-screen checkerboard pattern."""
+        white = COLOR_WHITE
+        black = COLOR_BLACK
+        for y in range(0, 240, tile_size):
+            for x in range(0, 320, tile_size):
+                is_white = ((x // tile_size) + (y // tile_size)) % 2 == 0
+                color = white if is_white else black
+                # Use _fill_rect but constrain height and width at boundaries
+                w = min(tile_size, 320 - x)
+                h = min(tile_size, 240 - y)
+                self._fill_rect(x, y, w, h, color)
