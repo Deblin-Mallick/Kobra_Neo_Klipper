@@ -48,7 +48,10 @@ class SpiTftConfigWrapper:
             "spi_bus": profile.pins.spi_bus,
             "cs_pin": profile.pins.cs_pin,
             "dc_pin": profile.pins.dc_pin,
+            "rst_pin": profile.pins.reset_pin,
         }
+        if profile.capabilities.backlight:
+            self._defaults["backlight_pin"] = profile.pins.backlight_pin
         if profile.capabilities.encoder:
             self._defaults["encoder_pins"] = profile.pins.encoder_pins
             self._defaults["click_pin"] = profile.pins.click_pin
