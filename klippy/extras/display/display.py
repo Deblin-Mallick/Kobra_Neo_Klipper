@@ -183,7 +183,7 @@ class PrinterLCD:
         # Load low-level lcd handler
         self.lcd_chip = config.getchoice('lcd_type', LCD_chips)(config)
 
-        # Allow the display driver to provide config overrides (e.g. hw defaults)
+        # Allow display driver to provide config overrides (e.g. hw defaults)
         menu_config = config
         if hasattr(self.lcd_chip, 'get_menu_config'):
             menu_config = self.lcd_chip.get_menu_config()

@@ -193,7 +193,7 @@ class SpiTftDisplay:
         enc = 'Yes' if cap.encoder else 'No'
         tch = f"Yes ({self.profile.touch_controller})" if cap.touch else 'No'
         bz = 'Yes' if cap.buzzer else 'No'
-        
+
         msg = (
             "SPI TFT Framework\n\n"
             f"Framework Version: 1\n"

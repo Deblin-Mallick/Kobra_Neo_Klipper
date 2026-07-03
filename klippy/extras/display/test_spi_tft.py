@@ -27,8 +27,8 @@ class TestSpiTftFramework(unittest.TestCase):
         )
         pins = PinConfiguration(
             spi_bus="spi1", cs_pin="PA1", dc_pin="PA2", reset_pin=None,
-            backlight_pin=None, encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin=None,
-            touch_cs_pin=None, touch_irq_pin=None
+            backlight_pin=None, encoder_pins="PA3,PA4", click_pin="PA5",
+            buzzer_pin=None, touch_cs_pin=None, touch_irq_pin=None
         )
         profile = DisplayProfile(
             name="mock_profile", version=1,
@@ -47,8 +47,8 @@ class TestSpiTftFramework(unittest.TestCase):
         )
         pins = PinConfiguration(
             spi_bus="spi1", cs_pin="PA1", dc_pin="PA2", reset_pin=None,
-            backlight_pin="PB1", encoder_pins="PA3,PA4", click_pin="PA5", buzzer_pin="PB2",
-            touch_cs_pin="PC1", touch_irq_pin="PC2"
+            backlight_pin="PB1", encoder_pins="PA3,PA4", click_pin="PA5",
+            buzzer_pin="PB2", touch_cs_pin="PC1", touch_irq_pin="PC2"
         )
         profile = DisplayProfile(
             name="mock_profile", version=1,
