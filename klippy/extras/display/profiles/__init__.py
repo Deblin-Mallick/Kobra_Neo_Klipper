@@ -5,9 +5,9 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 from dataclasses import dataclass
 from typing import Optional
-from enum import Enum
 
-class Rotation(Enum):
+
+class Rotation:
     ROTATE_0 = 0
     ROTATE_90 = 90
     ROTATE_180 = 180

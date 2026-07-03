@@ -4,12 +4,12 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
-from enum import Enum
+
 from . import st7789v
 from . import menu_keys
 from . import profiles
 
-class TestPhase(Enum):
+class TestPhase:
     IDLE = 0
     RED = 1
     GREEN = 2
@@ -200,7 +200,7 @@ class SpiTftDisplay:
 
         mapped = evt_map.get(event)
         if mapped:
-            self.printer.send_event(f"display:encoder_{mapped}")
+            self.printer.send_event("display:encoder_{0}".format(mapped))
 
         display_obj = self.printer.lookup_object('display', None)
         if display_obj is not None and display_obj.menu is not None:
@@ -225,27 +225,39 @@ class SpiTftDisplay:
 
     def cmd_DISPLAY_INFO(self, gcmd):
         freq = self.profile.spi_frequency
-        freq_str = f"{freq / 1000000.0:.1f} MHz" if freq else "Unknown/Default"
+        if freq:
+            freq_str = "{0:.1f} MHz".format(freq / 1000000.0)
+        else:
+            freq_str = "Unknown/Default"
         cap = self.profile.capabilities
         bl = 'Yes' if cap.backlight else 'No'
         enc = 'Yes' if cap.encoder else 'No'
-        tch = f"Yes ({self.profile.touch_controller})" if cap.touch else 'No'
+        if cap.touch:
+            tch = "Yes ({0})".format(self.profile.touch_controller)
+        else:
+            tch = 'No'
         bz = 'Yes' if cap.buzzer else 'No'
 
         msg = (
             "SPI TFT Framework\n\n"
-            f"Framework Version: 1\n"
-            f"Profile: {self.profile.name} (v{self.profile.version})\n"
-            f"Controller: {self.profile.controller}\n\n"
-            f"Resolution: {self.profile.width}x{self.profile.height}\n"
-            f"Rotation: {self.profile.rotation.value}°\n"
-            f"Color Order: {self.profile.color_order}\n"
-            f"SPI Frequency: {freq_str}\n\n"
+            "Framework Version: 1\n"
+            "Profile: {name} (v{version})\n"
+            "Controller: {controller}\n\n"
+            "Resolution: {width}x{height}\n"
+            "Rotation: {rotation}°\n"
+            "Color Order: {color_order}\n"
+            "SPI Frequency: {freq_str}\n\n"
             "Capabilities:\n"
-            f"  Backlight: {bl}\n"
-            f"  Encoder: {enc}\n"
-            f"  Touch: {tch}\n"
-            f"  Buzzer: {bz}\n"
+            "  Backlight: {bl}\n"
+            "  Encoder: {enc}\n"
+            "  Touch: {tch}\n"
+            "  Buzzer: {bz}\n"
+        ).format(
+            name=self.profile.name, version=self.profile.version,
+            controller=self.profile.controller, width=self.profile.width,
+            height=self.profile.height, rotation=self.profile.rotation,
+            color_order=self.profile.color_order, freq_str=freq_str,
+            bl=bl, enc=enc, tch=tch, bz=bz
         )
         gcmd.respond_info(msg)
 
@@ -428,12 +440,19 @@ class SpiTftDisplay:
 
             msg = (
                 "DISPLAY TEST RESULTS\n\n"
-                f"Controller : {self.profile.controller}\n"
-                f"Profile    : {self.profile.name}\n\n"
-                f"Encoder    {self.test_encoder_result}\n"
-                f"Backlight  {self.test_backlight_result}\n"
-                f"Buzzer     {self.test_buzzer_result}\n\n"
-                f"Overall    {overall}"
+                "Controller : {controller}\n"
+                "Profile    : {name}\n\n"
+                "Encoder    {enc}\n"
+                "Backlight  {bl}\n"
+                "Buzzer     {bz}\n\n"
+                "Overall    {overall}"
+            ).format(
+                controller=self.profile.controller,
+                name=self.profile.name,
+                enc=self.test_encoder_result,
+                bl=self.test_backlight_result,
+                bz=self.test_buzzer_result,
+                overall=overall
             )
             gcmd = self.printer.lookup_object('gcode')
             gcmd.respond_info(msg)
@@ -493,14 +512,23 @@ class SpiTftDisplay:
         total_fps = 1.0 / total_frame if total_frame > 0 else 0
 
         msg = (
-            "Display benchmark:\n"
-            f"  Controller: {self.profile.controller}\n"
-            f"  Resolution: {self.profile.width}x{self.profile.height}\n"
-            f"  Render Time: {avg_sw*1000:.1f} ms\n"
-            f"  SPI Transfer Time: {avg_hw*1000:.1f} ms\n"
-            f"  Total Frame Time: {total_frame*1000:.1f} ms\n"
-            f"  Average FPS: {total_fps:.1f}\n"
-            f"  Peak FPS: {hw_fps:.1f} (hardware limited)\n"
+            "SPI TFT BENCHMARK RESULTS\n\n"
+            "  Controller: {controller}\n"
+            "  Resolution: {width}x{height}\n"
+            "  Render Time: {avg_sw:.1f} ms\n"
+            "  SPI Transfer Time: {avg_hw:.1f} ms\n"
+            "  Total Frame Time: {total:.1f} ms\n"
+            "  Average FPS: {fps:.1f}\n"
+            "  Peak FPS: {peak_fps:.1f} (hardware limited)\n"
+        ).format(
+            controller=self.profile.controller,
+            width=self.profile.width,
+            height=self.profile.height,
+            avg_sw=avg_sw*1000,
+            avg_hw=avg_hw*1000,
+            total=total_frame*1000,
+            fps=total_fps,
+            peak_fps=hw_fps
         )
         gcmd.respond_info(msg)
 
