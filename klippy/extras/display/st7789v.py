@@ -5,6 +5,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
 import time
+import logging
 
 from .. import bus
 from . import font8x14
@@ -28,7 +29,17 @@ EXTRA_GLYPHS = {
     ]),
 }
 
-TextGlyphs = { 'right_arrow': b'\x1a', 'degrees': b'\xf8' }
+TextGlyphs = {
+    'right_arrow': b'\x1a',
+    'degrees': b'\xf8',
+    # 'extruder': b'\xf9',
+    # 'bed': b'\xfa',
+    # 'bed_heat1': b'\xfb',
+    # 'bed_heat2': b'\xfc',
+    # 'fan1': b'\xfd',
+    # 'fan2': b'\xfe',
+    # 'feedrate': b'\xff',
+}
 
 # RGB565 colors
 COLOR_BLACK = 0x0000
@@ -65,6 +76,9 @@ class ST7789V:
         self.char_h = 28
         self.text_buf = [[' '] * self.cols for _ in range(self.rows)]
         self.old_text_buf = [['~'] * self.cols for _ in range(self.rows)]
+        self.glyph_buf = [[' '] * self.cols for _ in range(self.rows)]
+        self.old_glyph_buf = [['~'] * self.cols for _ in range(self.rows)]
+        self.cached_glyphs = {}
         self.icons = {}
         self.font = font8x14.VGA_FONT
 
@@ -113,6 +127,7 @@ class ST7789V:
         for row in range(self.rows):
             for col in range(self.cols):
                 self.old_text_buf[row][col] = '~'
+                self.old_glyph_buf[row][col] = '~'
 
     def _set_window(self, x, y, w, h):
         xe = x + w - 1
@@ -180,6 +195,59 @@ class ST7789V:
         self._set_window(x, y, self.char_w, self.char_h)
         self._send_chunked(pixels)
 
+    # def _draw_glyph(self, col, row, glyph_names, fg, bg):
+    #     pass
+    def _draw_glyph(self,col,row,glyph_names, fg, bg):
+            x = col * self.char_w
+            y = row * self.char_h
+            icon_pixel = self.icons.get(glyph_names)
+            # icon_pixel = self.icons[glyph_names]
+            if (icon_pixel is None) or (x >= 320 or y >= 240):
+                return
+            # logging.info(icon_pixel)
+
+            pixels = bytearray(self.char_w * self.char_h * 2)
+            idx = 0
+
+            fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
+            bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
+            if len(icon_pixel) != 2:
+                return
+            left = icon_pixel[0]
+            right = icon_pixel[1]
+
+            for dst_row in range(self.char_h):
+
+                src_row = (dst_row * 16) // self.char_h
+
+                left_byte = left[src_row]
+                right_byte = right[src_row]
+
+                for bit in range(8):
+                    if left_byte & (0x80 >> bit):
+                        pixels[idx] = fg_hi
+                        pixels[idx + 1] = fg_lo
+                    else:
+                        pixels[idx] = bg_hi
+                        pixels[idx + 1] = bg_lo
+                    idx += 2
+
+                for bit in range(8):
+                    if right_byte & (0x80 >> bit):
+                        pixels[idx] = fg_hi
+                        pixels[idx + 1] = fg_lo
+                    else:
+                        pixels[idx] = bg_hi
+                        pixels[idx + 1] = bg_lo
+                    idx += 2
+
+            self._set_window(
+                x ,y ,
+                self.char_w, self.char_h,
+            )
+            self._send_chunked(pixels)
+
+            return 1
     def flush(self):
         for row in range(self.rows):
             for col in range(self.cols):
@@ -188,12 +256,33 @@ class ST7789V:
                     fg = COLOR_CYAN if row == 0 else COLOR_WHITE
                     self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
                     self.old_text_buf[row][col] = self.text_buf[row][col]
+                if self.glyph_buf[row][col] != self.old_glyph_buf[row][col]:
+                    glyph_names = self.glyph_buf[row][col]
+                    # logging.info(f"TestStart: {glyph_names}")
+                    self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE, bg=COLOR_BLACK)
+                    self.old_glyph_buf[row][col] = glyph_names
+
+    # def cache_glyph(self, glyph_name, base_glyph_name, glyph_id):
+    #     icon = self.icons.get(glyph_name)
+    #     base_icon = self.icons.get(base_glyph_name)
+    #     if icon is None or base_icon is None:
+    #         return
+    #     # all_bits = zip(icon[0], icon[1], base_icon[0], base_icon[1])
+    #     # for i, (ic1, ic2, b1, b2) in enumerate(all_bits):
+    #     #     x1, x2 = ic1 ^ b1, ic2 ^ b2
+    #     #     pos = glyph_id*32 + i*2
+    #     #     self.glyph_framebuffer[pos:pos+2] = [x1, x2]
+    #     #     self.all_framebuffers[1][1][pos:pos+2] = [x1 ^ 1, x2 ^ 1]
+    #     self.cached_glyphs[glyph_name] = (base_glyph_name, (0, glyph_id*2))
 
     def set_glyphs(self, glyphs):
         for glyph_name, glyph_data in glyphs.items():
             icon = glyph_data.get('icon16x16')
             if icon is not None:
                 self.icons[glyph_name] = icon
+        # Setup animated glyphs
+        # self.cache_glyph('fan2', 'fan1', 0)
+        # self.cache_glyph('bed_heat2', 'bed_heat1', 1)
 
     def write_text(self, x, y, data):
         if y >= self.rows:
@@ -210,16 +299,22 @@ class ST7789V:
         pass
 
     def write_glyph(self, x, y, glyph_name):
-        text = TextGlyphs.get(glyph_name)
-        if text is not None:
+
+        if glyph_name in TextGlyphs:
+            text = TextGlyphs.get(glyph_name)
             self.write_text(x, y, text.decode('latin-1'))
+            # self.write_text(x, y, text)
             return len(text)
+        if glyph_name in self.icons:
+            # logging.info("glyph_name Worked")
+            self.glyph_buf[y][x] = glyph_name
+            return 1
         return 0
 
     def clear(self):
         for row in range(self.rows):
             for col in range(self.cols):
                 self.text_buf[row][col] = ' '
-
+                self.glyph_buf[row][col] = ' '
     def get_dimensions(self):
         return (self.cols, self.rows)
