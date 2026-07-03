@@ -4,12 +4,13 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
+from enum import Enum
 
 from . import st7789v
 from . import menu_keys
 from . import profiles
 
-class TestPhase:
+class TestPhase(Enum):
     IDLE = 0
     RED = 1
     GREEN = 2
@@ -255,7 +256,7 @@ class SpiTftDisplay:
         ).format(
             name=self.profile.name, version=self.profile.version,
             controller=self.profile.controller, width=self.profile.width,
-            height=self.profile.height, rotation=self.profile.rotation,
+            height=self.profile.height, rotation=self.profile.rotation.value,
             color_order=self.profile.color_order, freq_str=freq_str,
             bl=bl, enc=enc, tch=tch, bz=bz
         )
