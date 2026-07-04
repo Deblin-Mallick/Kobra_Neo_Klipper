@@ -72,6 +72,9 @@ class ST7789V:
         self.old_text_buf = [['~'] * self.cols for _ in range(self.rows)]
         self.glyph_buf = [[' '] * self.cols for _ in range(self.rows)]
         self.old_glyph_buf = [['~'] * self.cols for _ in range(self.rows)]
+        
+        self._char_cache = {}
+        self._glyph_cache = {}
         self.cached_glyphs = {}
         self.icons = {}
         self.font = font8x14.VGA_FONT
@@ -193,35 +196,42 @@ class ST7789V:
         y = row * self.char_h
         if x >= 320 or y >= 240:
             return
+            
         c = ord(ch) if isinstance(ch, str) else ch
-        if c <= 127:
-            glyph = self.font[c]
-        else:
-            glyph = EXTRA_GLYPHS.get(c)
-            if glyph is None:
-                glyph = self.font[ord('?')]
-        pixels = bytearray(self.char_w * self.char_h * 2)
-        idx = 0
-        fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
-        bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
-        for font_row in range(14):
-            row_byte = glyph[font_row]
-            scaled_row = bytearray(32)
-            for bit in range(8):
-                if row_byte & (0x80 >> bit):
-                    scaled_row[bit*4]     = fg_hi
-                    scaled_row[bit*4 + 1] = fg_lo
-                    scaled_row[bit*4 + 2] = fg_hi
-                    scaled_row[bit*4 + 3] = fg_lo
-                else:
-                    scaled_row[bit*4]     = bg_hi
-                    scaled_row[bit*4 + 1] = bg_lo
-                    scaled_row[bit*4 + 2] = bg_hi
-                    scaled_row[bit*4 + 3] = bg_lo
-            pixels[idx:idx + 32] = scaled_row
-            idx += 32
-            pixels[idx:idx + 32] = scaled_row
-            idx += 32
+        cache_key = (c, fg, bg)
+        pixels = self._char_cache.get(cache_key)
+        
+        if pixels is None:
+            if c <= 127:
+                glyph = self.font[c]
+            else:
+                glyph = EXTRA_GLYPHS.get(c)
+                if glyph is None:
+                    glyph = self.font[ord('?')]
+            pixels = bytearray(self.char_w * self.char_h * 2)
+            idx = 0
+            fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
+            bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
+            for font_row in range(14):
+                row_byte = glyph[font_row]
+                scaled_row = bytearray(32)
+                for bit in range(8):
+                    if row_byte & (0x80 >> bit):
+                        scaled_row[bit*4]     = fg_hi
+                        scaled_row[bit*4 + 1] = fg_lo
+                        scaled_row[bit*4 + 2] = fg_hi
+                        scaled_row[bit*4 + 3] = fg_lo
+                    else:
+                        scaled_row[bit*4]     = bg_hi
+                        scaled_row[bit*4 + 1] = bg_lo
+                        scaled_row[bit*4 + 2] = bg_hi
+                        scaled_row[bit*4 + 3] = bg_lo
+                pixels[idx:idx + 32] = scaled_row
+                idx += 32
+                pixels[idx:idx + 32] = scaled_row
+                idx += 32
+            self._char_cache[cache_key] = pixels
+            
         self._set_window(x, y, self.char_w, self.char_h)
         self._send_chunked(pixels)
 
@@ -234,47 +244,51 @@ class ST7789V:
             # icon_pixel = self.icons[glyph_names]
             if (icon_pixel is None) or (x >= 320 or y >= 240):
                 return
-            # logging.info(icon_pixel)
+            
+            cache_key = (glyph_names, fg, bg)
+            pixels = self._glyph_cache.get(cache_key)
+            
+            if pixels is None:
+                pixels = bytearray(self.char_w * self.char_h * 2)
+                idx = 0
 
-            pixels = bytearray(self.char_w * self.char_h * 2)
-            idx = 0
+                fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
+                bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
+                if len(icon_pixel) != 2:
+                    return
+                left = icon_pixel[0]
+                right = icon_pixel[1]
 
-            fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
-            bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
-            if len(icon_pixel) != 2:
-                return
-            left = icon_pixel[0]
-            right = icon_pixel[1]
+                for dst_row in range(self.char_h):
+                    src_row = (dst_row * 16) // self.char_h
 
-            for dst_row in range(self.char_h):
+                    left_byte = left[src_row]
+                    right_byte = right[src_row]
 
-                src_row = (dst_row * 16) // self.char_h
+                    for bit in range(8):
+                        if left_byte & (0x80 >> bit):
+                            pixels[idx] = fg_hi
+                            pixels[idx + 1] = fg_lo
+                        else:
+                            pixels[idx] = bg_hi
+                            pixels[idx + 1] = bg_lo
+                        idx += 2
 
-                left_byte = left[src_row]
-                right_byte = right[src_row]
-
-                for bit in range(8):
-                    if left_byte & (0x80 >> bit):
-                        pixels[idx] = fg_hi
-                        pixels[idx + 1] = fg_lo
-                    else:
-                        pixels[idx] = bg_hi
-                        pixels[idx + 1] = bg_lo
-                    idx += 2
-
-                for bit in range(8):
-                    if right_byte & (0x80 >> bit):
-                        pixels[idx] = fg_hi
-                        pixels[idx + 1] = fg_lo
-                    else:
-                        pixels[idx] = bg_hi
-                        pixels[idx + 1] = bg_lo
-                    idx += 2
+                    for bit in range(8):
+                        if right_byte & (0x80 >> bit):
+                            pixels[idx] = fg_hi
+                            pixels[idx + 1] = fg_lo
+                        else:
+                            pixels[idx] = bg_hi
+                            pixels[idx + 1] = bg_lo
+                        idx += 2
+                self._glyph_cache[cache_key] = pixels
 
             self._set_window(
                 x ,y ,
-                self.char_w, self.char_h,
+                self.char_w ,self.char_h
             )
+            
             self._send_chunked(pixels)
 
             return 1
