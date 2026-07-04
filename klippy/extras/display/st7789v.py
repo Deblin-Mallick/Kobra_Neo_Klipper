@@ -288,10 +288,15 @@ class ST7789V:
                     glyph_names = self.glyph_buf[row][col]
                     ch = self.text_buf[row][col]
                     
+                    fg = COLOR_CYAN
+                    if row == 1:
+                        fg = COLOR_ORANGE
+                    elif row == 4:
+                        fg = COLOR_GREEN
+                    
                     if glyph_names != ' ':
-                        self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE, bg=COLOR_BLACK)
+                        self._draw_glyph(col, row, glyph_names, fg=fg, bg=COLOR_BLACK)
                     else:
-                        fg = COLOR_CYAN if row == 0 else COLOR_WHITE
                         self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
                         
                     self.old_text_buf[row][col] = ch
