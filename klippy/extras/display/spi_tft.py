@@ -127,7 +127,6 @@ class SpiTftDisplay:
         # Splash Screen State Machine: BOOT -> SHOW -> NORMAL
         self.splash_state = "BOOT"
         self.splash_end_time = None
-        self.printer.register_event_handler("klippy:ready", self._handle_ready)
 
         # Backlight State
         self.display_timeout = config.getfloat('display_timeout', 300.0,
@@ -158,7 +157,7 @@ class SpiTftDisplay:
         """
         return self.wrapped_config
 
-    def _handle_ready(self):
+    def init(self):
         display = self.printer.lookup_object('display', None)
         if display is not None and display.menu is not None:
             orig_key_event = display.menu.key_event
