@@ -146,10 +146,6 @@ class SpiTftDisplay:
             self.backlight.setup_cycle_time(0.01)
             self.backlight.setup_start_value(1.0, 1.0)
 
-            if self.display_timeout > 0:
-                self.reactor.register_timer(self.backlight_timer_event,
-                                            self.reactor.NOW)
-
     def get_menu_config(self):
         """
         Return a configuration wrapper exposing menu-related defaults.
@@ -178,6 +174,11 @@ class SpiTftDisplay:
         self.controller.write_text(4, 1,
                                    "Profile: %s" % (self.config.get('profile')))
         self.controller.flush()
+
+        if self.backlight is not None and self.display_timeout > 0:
+            self.last_activity_time = self.reactor.NOW
+            self.reactor.register_timer(self.backlight_timer_event,
+                                        self.reactor.NOW)
 
     def _menu_callback(self, event, eventtime):
         self._activity_wakeup(eventtime)
