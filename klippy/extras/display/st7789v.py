@@ -194,9 +194,6 @@ class ST7789V:
     def _draw_char(self, col, row, ch, fg=COLOR_WHITE, bg=COLOR_BLACK):
         x = col * self.char_w
         y = row * self.char_h
-        if x >= 320 or y >= 240:
-            return
-            
         c = ord(ch) if isinstance(ch, str) else ch
         cache_key = (c, fg, bg)
         pixels = self._char_cache.get(cache_key)
@@ -232,18 +229,14 @@ class ST7789V:
                 idx += 32
             self._char_cache[cache_key] = pixels
             
-        self._set_window(x, y, self.char_w, self.char_h)
-        self._send_chunked(pixels)
+        return pixels
 
     # def _draw_glyph(self, col, row, glyph_names, fg, bg):
     #     pass
     def _draw_glyph(self,col,row,glyph_names, fg, bg):
-            x = col * self.char_w
-            y = row * self.char_h
             icon_pixel = self.icons.get(glyph_names)
-            # icon_pixel = self.icons[glyph_names]
-            if (icon_pixel is None) or (x >= 320 or y >= 240):
-                return
+            if icon_pixel is None:
+                return bytearray(self.char_w * self.char_h * 2)
             
             cache_key = (glyph_names, fg, bg)
             pixels = self._glyph_cache.get(cache_key)
@@ -255,7 +248,7 @@ class ST7789V:
                 fg_hi, fg_lo = (fg >> 8) & 0xFF, fg & 0xFF
                 bg_hi, bg_lo = (bg >> 8) & 0xFF, bg & 0xFF
                 if len(icon_pixel) != 2:
-                    return
+                    return bytearray(self.char_w * self.char_h * 2)
                 left = icon_pixel[0]
                 right = icon_pixel[1]
 
@@ -284,39 +277,64 @@ class ST7789V:
                         idx += 2
                 self._glyph_cache[cache_key] = pixels
 
-            self._set_window(
-                x ,y ,
-                self.char_w ,self.char_h
-            )
-            
-            self._send_chunked(pixels)
-
-            return 1
+            return pixels
     def flush(self):
+        is_status_screen = "".join(self.text_buf[0]).strip() == "Anycubic Kobra Neo"
+
         for row in range(self.rows):
+            min_col = -1
+            max_col = -1
+            
             for col in range(self.cols):
-                text_changed = self.text_buf[row][col] != self.old_text_buf[row][col]
-                glyph_changed = self.glyph_buf[row][col] != self.old_glyph_buf[row][col]
+                if self.text_buf[row][col] != self.old_text_buf[row][col] or \
+                   self.glyph_buf[row][col] != self.old_glyph_buf[row][col]:
+                    if min_col == -1:
+                        min_col = col
+                    max_col = col
+            
+            if min_col == -1:
+                continue
                 
-                if text_changed or glyph_changed:
-                    glyph_names = self.glyph_buf[row][col]
-                    ch = self.text_buf[row][col]
-                    fg = COLOR_CYAN
+            fg = COLOR_CYAN
+            if is_status_screen:
+                if row == 1:
+                    fg = COLOR_ORANGE
+                elif row == 4:
+                    fg = COLOR_GREEN
+            
+            char_datas = []
+            for col in range(min_col, max_col + 1):
+                glyph_names = self.glyph_buf[row][col]
+                ch = self.text_buf[row][col]
+                
+                if glyph_names != ' ':
+                    data = self._draw_glyph(col, row, glyph_names, fg=fg, bg=COLOR_BLACK)
+                else:
+                    data = self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
                     
-                    is_status_screen = "".join(self.text_buf[0]).strip() == "Anycubic Kobra Neo"
-                    if is_status_screen:
-                        if row == 1:
-                            fg = COLOR_ORANGE
-                        elif row == 4:
-                            fg = COLOR_GREEN
+                char_datas.append(data)
+                self.old_text_buf[row][col] = ch
+                self.old_glyph_buf[row][col] = glyph_names
+                
+            num_chars = max_col - min_col + 1
+            batch_width_px = num_chars * self.char_w
+            combined_pixels = bytearray(batch_width_px * self.char_h * 2)
+            
+            char_bytes_width = self.char_w * 2
+            
+            for y in range(self.char_h):
+                dst_row_offset = y * batch_width_px * 2
+                src_row_offset = y * char_bytes_width
+                
+                for i, char_data in enumerate(char_datas):
+                    if char_data is None: continue
+                    dst_start = dst_row_offset + (i * char_bytes_width)
+                    combined_pixels[dst_start : dst_start + char_bytes_width] = char_data[src_row_offset : src_row_offset + char_bytes_width]
                     
-                    if glyph_names != ' ':
-                        self._draw_glyph(col, row, glyph_names, fg=fg, bg=COLOR_BLACK)
-                    else:
-                        self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
-                        
-                    self.old_text_buf[row][col] = ch
-                    self.old_glyph_buf[row][col] = glyph_names
+            x = min_col * self.char_w
+            y_px = row * self.char_h
+            self._set_window(x, y_px, batch_width_px, self.char_h)
+            self._send_chunked(combined_pixels)
 
     # def cache_glyph(self, glyph_name, base_glyph_name, glyph_id):
     #     icon = self.icons.get(glyph_name)
