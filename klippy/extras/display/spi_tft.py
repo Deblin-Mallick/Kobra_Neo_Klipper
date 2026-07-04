@@ -570,7 +570,8 @@ class SpiTftDisplay:
 
     def write_glyph(self, x, y, glyph_name):
         if self.splash_state == "NORMAL":
-            self.controller.write_glyph(x, y, glyph_name)
+            return self.controller.write_glyph(x, y, glyph_name)
+        return 1
 
     def set_glyphs(self, glyphs):
         self.controller.set_glyphs(glyphs)
