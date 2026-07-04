@@ -86,7 +86,7 @@ class MenuElement(object):
 
     # override
     def is_scrollable(self):
-        return True
+        return False
 
     # override
     def is_enabled(self):
