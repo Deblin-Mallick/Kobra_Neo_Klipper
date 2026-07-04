@@ -324,6 +324,7 @@ class ST7789V:
             if isinstance(ch, int):
                 ch = chr(ch)
             self.text_buf[y][col] = ch
+            self.glyph_buf[y][col] = ' '
 
     def write_graphics(self, x, y, data):
         pass
@@ -338,6 +339,7 @@ class ST7789V:
         if glyph_name in self.icons:
             # logging.info("glyph_name Worked")
             self.glyph_buf[y][x] = glyph_name
+            self.text_buf[y][x] = ' '
             return 1
         return 0
 
