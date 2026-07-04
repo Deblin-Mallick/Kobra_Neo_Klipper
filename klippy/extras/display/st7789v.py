@@ -287,12 +287,14 @@ class ST7789V:
                 if text_changed or glyph_changed:
                     glyph_names = self.glyph_buf[row][col]
                     ch = self.text_buf[row][col]
-                    
                     fg = COLOR_CYAN
-                    if row == 1:
-                        fg = COLOR_ORANGE
-                    elif row == 4:
-                        fg = COLOR_GREEN
+                    
+                    is_status_screen = "".join(self.text_buf[0]).strip() == "Anycubic Kobra Neo"
+                    if is_status_screen:
+                        if row == 1:
+                            fg = COLOR_ORANGE
+                        elif row == 4:
+                            fg = COLOR_GREEN
                     
                     if glyph_names != ' ':
                         self._draw_glyph(col, row, glyph_names, fg=fg, bg=COLOR_BLACK)
