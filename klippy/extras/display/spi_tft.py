@@ -159,9 +159,16 @@ class SpiTftDisplay:
         return self.wrapped_config
 
     def _handle_ready(self):
-        # Safely load MenuKeys here since MenuManager won't have initialized yet
-        self.menu_keys = menu_keys.MenuKeys(self.wrapped_config,
-                                            self._menu_callback)
+        display = self.printer.lookup_object('display', None)
+        if display is not None and display.menu is not None:
+            orig_key_event = display.menu.key_event
+            def hooked_key_event(event, eventtime):
+                self._menu_callback(event, eventtime)
+                # Suppress normal Klipper menu navigation during diagnostic test
+                if self.test_state.value != 0:
+                    return
+                return orig_key_event(event, eventtime)
+            display.menu.key_event = hooked_key_event
 
         self.splash_end_time = self.reactor.NOW + 2.0
         self.splash_state = "SHOW"
