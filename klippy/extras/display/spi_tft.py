@@ -133,7 +133,7 @@ class SpiTftDisplay:
                                                minval=0.0)
         self.dim_level = config.getfloat('dim_level', 0.2,
                                          minval=0.0, maxval=1.0)
-        self.last_activity_time = self.reactor.NOW
+        self.last_activity_time = self.reactor.monotonic()
         self.is_dimmed = False
 
         self.backlight = None
@@ -169,7 +169,7 @@ class SpiTftDisplay:
                 return orig_key_event(event, eventtime)
             display.menu.key_event = hooked_key_event
 
-        self.splash_end_time = self.reactor.NOW + 2.0
+        self.splash_end_time = self.reactor.monotonic() + 2.0
         self.splash_state = "SHOW"
 
         if self.debug_mode:
@@ -182,9 +182,9 @@ class SpiTftDisplay:
         self.controller.flush()
 
         if self.backlight is not None and self.display_timeout > 0:
-            self.last_activity_time = self.reactor.NOW
+            self.last_activity_time = self.reactor.monotonic()
             self.reactor.register_timer(self.backlight_timer_event,
-                                        self.reactor.NOW)
+                                        self.reactor.monotonic())
 
     def _menu_callback(self, event, eventtime):
         self._activity_wakeup(eventtime)
@@ -197,7 +197,7 @@ class SpiTftDisplay:
             self.test_encoder_result = "PASS"
             # Cancel current timer and advance phase immediately
             if self.test_timer:
-                self.reactor.update_timer(self.test_timer, self.reactor.NOW)
+                self.reactor.update_timer(self.test_timer, self.reactor.monotonic())
             return
 
         evt_map = {
@@ -223,7 +223,7 @@ class SpiTftDisplay:
         if self.backlight is None:
             return
         if eventtime is None:
-            eventtime = self.reactor.NOW
+            eventtime = self.reactor.monotonic()
         mcu = self.backlight.get_mcu()
         print_time = mcu.estimated_print_time(
             eventtime + mcu.min_schedule_time())
@@ -301,7 +301,7 @@ class SpiTftDisplay:
         self.test_backlight_result = "N/A"
         self.test_buzzer_result = "N/A"
         self.test_timer = self.reactor.register_timer(
-            self._test_timer_event, self.reactor.NOW)
+            self._test_timer_event, self.reactor.monotonic())
 
     def cmd_DISPLAY_TEST_CANCEL(self, gcmd):
         if self.test_state == TestPhase.IDLE:
@@ -310,7 +310,7 @@ class SpiTftDisplay:
         gcmd.respond_info("Cancelling DISPLAY_TEST...")
         self.test_state = TestPhase.RESTORE
         if self.test_timer:
-            self.reactor.update_timer(self.test_timer, self.reactor.NOW)
+            self.reactor.update_timer(self.test_timer, self.reactor.monotonic())
 
     def _test_timer_event(self, eventtime):
         if self.test_state == TestPhase.IDLE:
@@ -508,12 +508,12 @@ class SpiTftDisplay:
         # Benchmark SPI hardware transfer time
         hw_times = []
         for i in range(iterations):
-            t1 = self.reactor.NOW
+            t1 = self.reactor.monotonic()
             for row in range(self.controller.rows):
                 for col in range(self.controller.cols):
                     self.controller.old_text_buf[row][col] = '~'
             self.controller.flush()
-            t2 = self.reactor.NOW
+            t2 = self.reactor.monotonic()
             hw_times.append(t2 - t1)
 
         avg_hw = sum(hw_times) / len(hw_times)
@@ -521,10 +521,10 @@ class SpiTftDisplay:
         # Benchmark software rendering time (mocking menu render)
         sw_times = []
         for i in range(iterations):
-            t1 = self.reactor.NOW
+            t1 = self.reactor.monotonic()
             self.clear()
             self.write_text(0, 0, "Benchmark Rendering Test")
-            t2 = self.reactor.NOW
+            t2 = self.reactor.monotonic()
             sw_times.append(t2 - t1)
 
         avg_sw = sum(sw_times) / len(sw_times)
@@ -580,7 +580,7 @@ class SpiTftDisplay:
         if self.splash_state == "BOOT":
             return
         elif self.splash_state == "SHOW":
-            if self.reactor.NOW < self.splash_end_time:
+            if self.reactor.monotonic() < self.splash_end_time:
                 return
             else:
                 self.splash_state = "NORMAL"
