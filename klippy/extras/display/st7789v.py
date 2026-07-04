@@ -281,15 +281,20 @@ class ST7789V:
     def flush(self):
         for row in range(self.rows):
             for col in range(self.cols):
-                if self.text_buf[row][col] != self.old_text_buf[row][col]:
-                    ch = self.text_buf[row][col]
-                    fg = COLOR_CYAN if row == 0 else COLOR_WHITE
-                    self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
-                    self.old_text_buf[row][col] = self.text_buf[row][col]
-                if self.glyph_buf[row][col] != self.old_glyph_buf[row][col]:
+                text_changed = self.text_buf[row][col] != self.old_text_buf[row][col]
+                glyph_changed = self.glyph_buf[row][col] != self.old_glyph_buf[row][col]
+                
+                if text_changed or glyph_changed:
                     glyph_names = self.glyph_buf[row][col]
-                    self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE,
-                                     bg=COLOR_BLACK)
+                    ch = self.text_buf[row][col]
+                    
+                    if glyph_names != ' ':
+                        self._draw_glyph(col, row, glyph_names, fg=COLOR_WHITE, bg=COLOR_BLACK)
+                    else:
+                        fg = COLOR_CYAN if row == 0 else COLOR_WHITE
+                        self._draw_char(col, row, ch, fg=fg, bg=COLOR_BLACK)
+                        
+                    self.old_text_buf[row][col] = ch
                     self.old_glyph_buf[row][col] = glyph_names
 
     # def cache_glyph(self, glyph_name, base_glyph_name, glyph_id):
@@ -367,3 +372,4 @@ class ST7789V:
                 w = min(tile_size, 320 - x)
                 h = min(tile_size, 240 - y)
                 self._fill_rect(x, y, w, h, color)
+
